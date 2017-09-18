@@ -15,6 +15,9 @@ class Particle(object):
         self.z = z
 
     def tick(self):
+        self.vx *= .99
+        self.vy *= .99
+        self.vz *= .99
         self.x += self.vx
         self.y += self.vy
         self.z += self.vz

@@ -1,11 +1,14 @@
 from particle import Particle
 import pygame
-import threading
+import numpy
 from multiprocessing.dummy import Pool as ThreadPool
 from math import cos
 from math import sin
 from math import pow
 from math import sqrt
+from random import randint
+from random import seed
+from time import time
 from pygame.locals import DOUBLEBUF
 from pygame.locals import OPENGL
 
@@ -25,57 +28,70 @@ xsize = 50
 ysize = 50
 
 
-spring_const = .01
-tension_const = .1
+spring_const = .001
+tension_const = .01
 spring_range = 2
 
 # grid that stores points
-points_grid = [[Particle(j, 0, i) for i in range(ysize)]
-               for j in range(xsize)]
+points_grid = numpy.array([[Particle(j, 0, i) for i in range(ysize)]
+                           for j in range(xsize)], dtype=Particle)
+
+time0 = 0
+time1 = 0
+
+
+def time_start():
+    global time0
+    time0 = time()
+
+
+def time_stop():
+    global time1
+    time1 = time()
+    print("Time:" + str(1000000*(time1 - time0)))
 
 
 def compute_physics():
-    while True:
-        pool = ThreadPool(4)
-        pool.map(calculate_physics, range(spring_range+1, ysize-spring_range))
-        pool.map(tick_physics, range(spring_range+1, ysize-spring_range))
-        pool.close()
-        pool.join()
+    pool = ThreadPool(4)
+    pool.map(calculate_physics, range(spring_range, ysize-spring_range))
+    pool.map(tick_physics, range(spring_range, ysize-spring_range))
+    pool.close()
+    pool.join()
 
 
 def tick_physics(i):
-    for j in range(spring_range+1, ysize-spring_range):
+    for j in range(spring_range, ysize-spring_range):
         points_grid[i][j].tick()
 
 
 def calculate_physics(i):
-    for j in range(spring_range+1, ysize-spring_range):
-        points_grid[i][j].vy -= points_grid[i][j].y*spring_const
-        points_grid[i][j].vx -= (points_grid[i][j].x-i)*spring_const
-        points_grid[i][j].vz -= (points_grid[i][j].z-j)*spring_const
+    for j in range(spring_range, ysize-spring_range):
+        current_particle = points_grid[i][j]
+
+        current_particle.vy -= current_particle.y*spring_const
+        current_particle.vx -= (current_particle.x-i)*spring_const
+        current_particle.vz -= (current_particle.z-j)*spring_const
         for a in range(i-spring_range, i+spring_range+1):
             for b in range(j-spring_range, j+spring_range+1):
                 if(a >= 0 and a < xsize and b >= 0 and b < xsize and a != i and b != j):
 
-                    deltax = points_grid[a][b].x - points_grid[i][j].x
-                    deltay = points_grid[a][b].y - points_grid[i][j].y
-                    deltaz = points_grid[a][b].z - points_grid[i][j].z
-                    dist = sqrt(pow(deltax, 2) +
-                                pow(deltay, 2) +
-                                pow(deltaz, 2))
-                    forcex = 0
-                    forcey = 0
-                    forcez = 0
-                    if deltax != 0:
-                        forcex = pow(deltax, 2)*abs(deltax)/deltax
-                    if deltay != 0:
-                        forcey = pow(deltay, 2)*abs(deltay)/deltay
-                    if deltaz != 0:
-                        forcez = pow(deltaz, 2)*abs(deltaz)/deltaz
+                    deltax = points_grid[a][b].x - current_particle.x
+                    deltay = points_grid[a][b].y - current_particle.y
+                    deltaz = points_grid[a][b].z - current_particle.z
+                    dist = sqrt(deltax**2 +
+                                deltay**2 +
+                                deltaz**2)
 
-                    points_grid[i][j].vx += forcex*tension_const/dist
-                    points_grid[i][j].vy += forcey*tension_const/dist
-                    points_grid[i][j].vz += forcez*tension_const/dist
+                    correct_dist = sqrt((a-i)*(a-i)+(b-j)*(b-j))
+
+                    force = dist - correct_dist
+
+                    precal = tension_const/dist
+                    precal_force = force*precal
+
+                    current_particle.vx += deltax*precal_force
+                    current_particle.vy += deltay*precal
+                    current_particle.vz += deltaz*precal_force
 
 
 def updaterotation(theta, phi):
@@ -141,9 +157,7 @@ def main():
     ypos = 0.0
     zpos = 0.0
 
-    compute_thread = threading.Thread(target=compute_physics)
-    compute_thread.start()
-
+    seed()
     while True:
 
         for event in pygame.event.get():
@@ -158,9 +172,16 @@ def main():
 
         xpos, ypos, zpos = updateposition(xpos, ypos, zpos)
 
+        #print("physics")
+        #time_start()
+        compute_physics()
+        #time_stop()
+
         if pygame.key.get_pressed()[pygame.K_o]:
-            for i in range(int(xsize/2)-1, int(xsize/2)+2):
-                for j in range(int(ysize/2)-1, int(ysize/2)+2):
+            xrand = randint(spring_range+1, xsize-spring_range)
+            yrand = randint(spring_range+1, ysize-spring_range)
+            for i in range(xrand-1, xrand+2):
+                for j in range(yrand-1, yrand+2):
                     points_grid[i][j].vy += 1
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
@@ -178,8 +199,8 @@ def main():
         glScalef(renderscale, renderscale, renderscale)
         glTranslatef(-xsize/2, 0, -ysize/2)
 
-        for i in range(xsize-1):
-            for j in range(ysize-1):
+        for i in range(spring_range, xsize-spring_range-1):
+            for j in range(spring_range, ysize-spring_range-1):
                 glBegin(GL_QUADS)
                 glVertex3f(points_grid[i][j].x, points_grid[i][j].y, points_grid[i][j].z)
                 glVertex3f(points_grid[i][j+1].x, points_grid[i][j+1].y, points_grid[i][j+1].z)
